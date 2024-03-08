@@ -13,15 +13,15 @@ const sendEmail = async (options) => {
   // const html = template({ qrCode });
 
   const transporter = nodeMailer.createTransport({
-    host: 'smtp.gmail.com',
-    // host: process.env.SMPT_HOST,
-    port: 587,
-    // port: process.env.SMTP_PORT,
+    // host: 'smtp.gmail.com',
+    host: process.env.SMPT_HOST,
+    // port: 587,
+    port: process.env.SMTP_PORT,
     auth: {
-      // user: process.env.SMPT_MAIL,
-      user: 'paragdevtest12345@gmail.com',
-      pass: 'zgyvcaakdzuhblgv',
-      // pass: process.env.SMPT_PASSWORD,
+      user: process.env.SMPT_MAIL,
+      // user: 'paragdevtest12345@gmail.com',
+      // pass: 'zgyvcaakdzuhblgv',
+      pass: process.env.SMPT_PASSWORD,
     },
   });
   console.log(qrCode, "inside mail");
