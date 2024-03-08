@@ -190,3 +190,32 @@ export const AddGuest = catchAsync(async (req, res, next) => {
     message: "Registered successfully. QR Code has been sent on email Id",
   });
 });
+
+export const UpdateGuest = catchAsync(async (req, res) => {
+  const guestId = req.params.id;
+  const updateData = req.body;
+  if (!mongoose.Types.ObjectId.isValid(guestId)) {
+    return res.status(400).json({ status: false, message: "Invalid guest ID", data: null });
+  }
+
+  // if (updateData.password) {
+  //   const hashedPassword = await bcrypt.hash(updateData.password, 10);
+  //   updateData.password = hashedPassword;
+  // }
+  updateData.updated_at = Date.now();
+
+  const user = await guestModel.findByIdAndUpdate(guestId, { $set: updateData }, { new: true, runValidators: true });
+  if (!user) {
+    return res.status(404).json({
+      status: false,
+      message: "Guest not found.",
+      data: null,
+    });
+  }
+
+  return res.status(200).json({
+    status: true,
+    data: user,
+    message: "Guest updated successfully",
+  });
+});

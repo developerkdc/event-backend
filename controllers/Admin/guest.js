@@ -109,10 +109,10 @@ export const UpdateGuest = catchAsync(async (req, res) => {
     return res.status(400).json({ status: false, message: "Invalid guest ID", data: null });
   }
 
-  if (updateData.password) {
-    const hashedPassword = await bcrypt.hash(updateData.password, 10);
-    updateData.password = hashedPassword;
-  }
+  // if (updateData.password) {
+  //   const hashedPassword = await bcrypt.hash(updateData.password, 10);
+  //   updateData.password = hashedPassword;
+  // }
   updateData.updated_at = Date.now();
 
   const user = await guestModel.findByIdAndUpdate(guestId, { $set: updateData }, { new: true, runValidators: true });
