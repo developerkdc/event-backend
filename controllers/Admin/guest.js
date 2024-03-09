@@ -10,96 +10,118 @@ export const AddGuest = catchAsync(async (req, res, next) => {
   const guestData = req.body;
   const saltRounds = 10;
 
-  if (guestData.email_id) {
-    const findByEmail = await guestModel.find({ email_id: guestData.email_id });
-    if (findByEmail && findByEmail.length > 0) {
-      return res.status(400).json({
-        status: false,
-        data: null,
-        message: "Email Id already exists.",
-      });
-    }
-  } else {
-    return res.status(400).json({
-      status: false,
-      data: null,
-      message: "Email Id required.",
-    });
-  }
-  if (guestData.mobile_no) {
-    const findByMobile = await guestModel.find({ mobile_no: guestData.mobile_no });
-    if (findByMobile && findByMobile.length > 0) {
-      return res.status(400).json({
-        status: false,
-        data: null,
-        message: "Mobile No. already exists.",
-      });
-    }
-  } else {
-    return res.status(400).json({
-      status: false,
-      data: null,
-      message: "Mobile No. required.",
-    });
-  }
-
-  if (!guestData.password) {
-    return next(new ApiError("Password is required", 404));
-  }
-  guestData.password = await bcrypt.hash(guestData.password, saltRounds);
-
-  if (guestData.refer_by_id) {
-    const referBy = await guestModel.findById(guestData.refer_by_id);
-    if (referBy) {
-      guestData.refer_by_name = referBy.first_name + " " + referBy.last_name;
-    }
-  }
-
-  const MainGuest = await guestModel.create({
-    ...guestData,
-    status: "Registered",
-    register_by_name: guestData.first_name + " " + guestData.last_name + "(Self)",
-  });
-
-  if (MainGuest) {
-    var updateGuest = await guestModel.updateOne(
-      { _id: MainGuest._id },
-      {
-        $set: {
-          register_by_id: MainGuest._id,
-        },
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    if (guestData.email_id) {
+      const findByEmail = await guestModel.find({ email_id: guestData.email_id });
+      if (findByEmail && findByEmail.length > 0) {
+        return res.status(400).json({
+          status: false,
+          data: null,
+          message: "Email Id already exists.",
+        });
       }
-    );
-  }
-
-  if (MainGuest && guestData.member.length > 0) {
-    guestData.member.map(async (ele) => {
-      const GuestMember = await guestModel.create({
-        ...ele,
-        status: "Registered",
-        refer_by_name: MainGuest.refer_by_name,
-        refer_by_id: MainGuest.refer_by_id,
-        register_by_name: MainGuest.first_name + " " + MainGuest.last_name,
-        register_by_id: MainGuest._id,
+    } else {
+      return res.status(400).json({
+        status: false,
+        data: null,
+        message: "Email Id required.",
       });
+    }
+    if (guestData.mobile_no) {
+      const findByMobile = await guestModel.find({ mobile_no: guestData.mobile_no });
+      if (findByMobile && findByMobile.length > 0) {
+        return res.status(400).json({
+          status: false,
+          data: null,
+          message: "Mobile No. already exists.",
+        });
+      }
+    } else {
+      return res.status(400).json({
+        status: false,
+        data: null,
+        message: "Mobile No. required.",
+      });
+    }
+
+    if (!guestData.password) {
+      return next(new ApiError("Password is required", 404));
+    }
+    guestData.password = await bcrypt.hash(guestData.password, saltRounds);
+
+    if (guestData.refer_by_id) {
+      const referBy = await guestModel.findById(guestData.refer_by_id);
+      if (referBy) {
+        guestData.refer_by_name = referBy.first_name + " " + referBy.last_name;
+      }
+    }
+
+    const MainGuest = await guestModel.create(
+      [
+        {
+          ...guestData,
+          status: "Registered",
+          register_by_name: guestData.first_name + " " + guestData.last_name + "(Self)",
+        },
+      ],
+      { session }
+    );
+
+    if (MainGuest) {
+      var updateGuest = await guestModel.updateOne(
+        { _id: MainGuest[0]._id },
+        {
+          $set: {
+            register_by_id: MainGuest[0]._id,
+          },
+        },
+        { new: true, session }
+      );
+    }
+
+    if (MainGuest && guestData.member && guestData.member.length > 0) {
+      guestData.member.map(async (ele) => {
+        const GuestMember = await guestModel.create(
+          [
+            {
+              ...ele,
+              status: "Registered",
+              refer_by_name: MainGuest[0].refer_by_name,
+              refer_by_id: MainGuest[0].refer_by_id,
+              register_by_name: MainGuest[0].first_name + " " + MainGuest[0].last_name,
+              register_by_id: MainGuest[0]._id,
+            },
+          ],
+          { session }
+        );
+      });
+    }
+
+    let QR = await generateQR(`${MainGuest[0]._id}`);
+
+    await sendEmail({
+      email: guestData.email_id,
+      subject: "Event Pass",
+      htmlFile: "email.hbs",
+      qrCode: QR,
     });
+
+    await session.commitTransaction();
+    await session.endSession();
+
+    // Send a success response
+    return res.status(201).json({
+      status: true,
+      data: updateGuest,
+      message: "Registered successfully. QR Code has been sent on email Id",
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    await session.endSession();
+    return next(error);
   }
-
-  let QR = await generateQR(`${MainGuest._id}`);
-
-  await sendEmail({
-    email: guestData.email_id,
-    subject: "Event Pass",
-    htmlFile: "email.hbs",
-    qrCode: QR,
-  });
-
-  // Send a success response
-  return res.status(201).json({
-    status: true,
-    data: updateGuest,
-    message: "Registered successfully. QR Code has been sent on email Id",
-  });
 });
 
 export const UpdateGuest = catchAsync(async (req, res) => {
@@ -255,12 +277,12 @@ export const GetGuest = catchAsync(async (req, res) => {
     ...filter,
     ...searchQuery,
   });
-  const totalPages = Math.ceil(totalDocuments / limit);
+  // const totalPages = Math.ceil(totalDocuments / limit);
 
   return res.status(200).json({
     status: true,
     data: guests,
     message: "Guests List.",
-    totalPages: totalPages,
+    totalPages: totalDocuments,
   });
 });

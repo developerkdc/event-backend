@@ -106,89 +106,115 @@ export const AddGuest = catchAsync(async (req, res, next) => {
   const guestData = req.body;
   const saltRounds = 10;
 
-  if (guestData.email_id) {
-    const findByEmail = await guestModel.find({ email_id: guestData.email_id });
-    if (findByEmail && findByEmail.length > 0) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    if (guestData.email_id) {
+      const findByEmail = await guestModel.find({ email_id: guestData.email_id });
+      if (findByEmail && findByEmail.length > 0) {
+        return res.status(400).json({
+          status: false,
+          data: null,
+          message: "Email Id already exists.",
+        });
+      }
+    } else {
       return res.status(400).json({
         status: false,
         data: null,
-        message: "Email Id already exists.",
+        message: "Email Id required.",
       });
     }
-  } else {
-    return res.status(400).json({
-      status: false,
-      data: null,
-      message: "Email Id required.",
-    });
-  }
-  if (guestData.mobile_no) {
-    const findByMobile = await guestModel.find({ mobile_no: guestData.mobile_no });
-    if (findByMobile && findByMobile.length > 0) {
+    if (guestData.mobile_no) {
+      const findByMobile = await guestModel.find({ mobile_no: guestData.mobile_no });
+      if (findByMobile && findByMobile.length > 0) {
+        return res.status(400).json({
+          status: false,
+          data: null,
+          message: "Mobile No. already exists.",
+        });
+      }
+    } else {
       return res.status(400).json({
         status: false,
         data: null,
-        message: "Mobile No. already exists.",
+        message: "Mobile No. required.",
       });
     }
-  } else {
-    return res.status(400).json({
-      status: false,
-      data: null,
-      message: "Mobile No. required.",
-    });
-  }
 
-  if (!guestData.password) {
-    return next(new ApiError("Password is required", 404));
-  }
-  guestData.password = await bcrypt.hash(guestData.password, saltRounds);
+    if (!guestData.password) {
+      return next(new ApiError("Password is required", 404));
+    }
+    guestData.password = await bcrypt.hash(guestData.password, saltRounds);
 
-  const MainGuest = await guestModel.create({
-    ...guestData,
-    status: "Registered",
-    register_by_name: guestData.first_name + " " + guestData.last_name + "(Self)",
-  });
-
-  if (MainGuest) {
-    var updateGuest = await guestModel.findByIdAndUpdate(
-      { _id: MainGuest._id },
-      {
-        $set: {
-          register_by_id: MainGuest._id,
+    const MainGuest = await guestModel.create(
+      [
+        {
+          ...guestData,
+          status: "Registered",
+          register_by_name: guestData.first_name + " " + guestData.last_name + "(Self)",
         },
-      },
-      { new: true }
+      ],
+      { session }
     );
-  }
 
-  if (MainGuest && guestData.member.length > 0) {
-    guestData.member.map(async (ele) => {
-      const GuestMember = await guestModel.create({
-        ...ele,
-        status: "Registered",
-        register_by_name: MainGuest.first_name + " " + MainGuest.last_name,
-        register_by_id: MainGuest._id,
-      });
+    if (MainGuest) {
+      var updateGuest = await guestModel.findByIdAndUpdate(
+        { _id: MainGuest[0]._id },
+        {
+          $set: {
+            register_by_id: MainGuest[0]._id,
+          },
+        },
+        { new: true, session }
+      );
+    }
+
+    if (MainGuest && guestData.member) {
+      let memberArray= JSON.parse(guestData.member)
+      await Promise.all(
+        // guestData.member.map(async (ele) => {
+          memberArray.map(async (ele) => {
+          const GuestMember = await guestModel.create(
+            [
+              {
+                ...ele,
+                status: "Registered",
+                register_by_name: MainGuest[0].first_name + " " + MainGuest[0].last_name,
+                register_by_id: MainGuest[0]._id,
+              },
+            ],
+            { session }
+          );
+        })
+      );
+    }
+
+    let QR = await generateQR(`${MainGuest[0]._id}`);
+
+    await sendEmail({
+      email: guestData.email_id,
+      subject: "Event Pass",
+      htmlFile: "email.hbs",
+      qrCode: QR,
+      id: MainGuest[0]._id,
     });
+
+    await session.commitTransaction();
+    await session.endSession();
+
+    // Send a success response
+    return res.status(201).json({
+      status: true,
+      data: updateGuest,
+      message: "Registered successfully. QR Code has been sent on email Id",
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    await session.endSession();
+    return next(error);
   }
-
-  let QR = await generateQR(`${MainGuest._id}`);
-
-  await sendEmail({
-    email: guestData.email_id,
-    subject: "Event Pass",
-    htmlFile: "email.hbs",
-    qrCode: QR,
-    id:MainGuest._id
-  });
-
-  // Send a success response
-  return res.status(201).json({
-    status: true,
-    data: updateGuest,
-    message: "Registered successfully. QR Code has been sent on email Id",
-  });
 });
 
 export const UpdateGuest = catchAsync(async (req, res) => {
